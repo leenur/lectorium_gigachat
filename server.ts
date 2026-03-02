@@ -1,7 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
-import { createServer as createViteServer } from "vite";
+// import { createServer as createViteServer } from "vite";
 import db from "./db";
 import { GigaChatService } from "./src/services/gigachat";
 import fs from "fs";
@@ -501,6 +501,7 @@ app.post("/api/ai/analyze-pdf", async (req, res) => {
 async function startServer() {
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
