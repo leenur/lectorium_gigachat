@@ -15,6 +15,20 @@ export default function LecturerView({ onLogout }: LecturerViewProps) {
   const [attendanceCount, setAttendanceCount] = useState<number | null>(null);
   const [attendanceActive, setAttendanceActive] = useState(false);
   const [timeSeriesData, setTimeSeriesData] = useState<{ time: string, average: number }[]>([]);
+  const [aiStatus, setAiStatus] = useState<{ status: string, message: string } | null>(null);
+
+  useEffect(() => {
+    const checkAi = async () => {
+      try {
+        const res = await fetch('/api/health/ai');
+        const data = await res.json();
+        setAiStatus(data);
+      } catch (e) {
+        setAiStatus({ status: 'error', message: 'Не удалось проверить статус AI' });
+      }
+    };
+    checkAi();
+  }, []);
 
   const [quizGenerating, setQuizGenerating] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
@@ -173,6 +187,12 @@ export default function LecturerView({ onLogout }: LecturerViewProps) {
           <p className="text-stone-500">Активных студентов: {stats.count}</p>
         </div>
         <div className="flex gap-4">
+           {/* AI Status Indicator */}
+           <div className="flex items-center gap-2 px-3 py-1 rounded-xl bg-white shadow-sm border border-stone-200" title={aiStatus?.message || 'Проверка статуса AI...'}>
+             <div className={cn("w-2 h-2 rounded-full", aiStatus?.status === 'ok' ? "bg-emerald-500" : "bg-red-500 animate-pulse")} />
+             <span className="text-stone-600 text-xs font-medium font-mono uppercase tracking-tight">AI: {aiStatus?.status === 'ok' ? 'Online' : 'Offline'}</span>
+           </div>
+
            {/* Attendance Button */}
            <div className="flex items-center gap-4 bg-white p-2 rounded-xl shadow-sm border border-stone-200">
              {attendanceActive ? (
