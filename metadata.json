@@ -1,0 +1,5 @@
+{
+  "name": "Lectorium_gigachat",
+  "description": "Система обратной связи для лекций в реальном времени с отслеживанием понимания, вопросами и AI-функциями.",
+  "requestFramePermissions": []
+}
