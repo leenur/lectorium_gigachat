@@ -188,7 +188,15 @@ export default function LecturerView({ onLogout }: LecturerViewProps) {
         </div>
         <div className="flex gap-4">
            {/* AI Status Indicator */}
-           <div className="flex items-center gap-2 px-3 py-1 rounded-xl bg-white shadow-sm border border-stone-200" title={aiStatus?.message || 'Проверка статуса AI...'}>
+           <div 
+             className="flex items-center gap-2 px-3 py-1 rounded-xl bg-white shadow-sm border border-stone-200 cursor-help" 
+             onClick={() => {
+               if (aiStatus?.status !== 'ok') {
+                 alert(`AI Debug Info:\nStatus: ${aiStatus?.status}\nMessage: ${aiStatus?.message}\n\nПожалуйста, убедитесь, что GIGACHAT_API_KEY установлен в настройках Netlify.`);
+               }
+             }}
+             title={aiStatus?.message || 'Проверка статуса AI...'}
+           >
              <div className={cn("w-2 h-2 rounded-full", aiStatus?.status === 'ok' ? "bg-emerald-500" : "bg-red-500 animate-pulse")} />
              <span className="text-stone-600 text-xs font-medium font-mono uppercase tracking-tight">AI: {aiStatus?.status === 'ok' ? 'Online' : 'Offline'}</span>
            </div>

@@ -20,8 +20,27 @@ app.use(express.json({ limit: '50mb' }));
 
 // Helper to get GigaChat API Key dynamically
 const getGigaChatApiKey = () => {
-  const key = process.env.GIGACHAT_API_KEY ? process.env.GIGACHAT_API_KEY.trim() : "";
-  // Remove any quotes that might have been added in Netlify UI
+  let key = process.env.GIGACHAT_API_KEY ? process.env.GIGACHAT_API_KEY.trim() : "";
+  
+  // Fallback: If key is missing from process.env, try to read it from .env.example 
+  // (User might have put it there thinking it's the right place)
+  if (!key) {
+    try {
+      const envExamplePath = path.join(process.cwd(), '.env.example');
+      if (fs.existsSync(envExamplePath)) {
+        const content = fs.readFileSync(envExamplePath, 'utf8');
+        const match = content.match(/GIGACHAT_API_KEY\s*=\s*(.*)/);
+        if (match && match[1]) {
+          key = match[1].trim();
+          console.log("GigaChat: Found API key in .env.example fallback");
+        }
+      }
+    } catch (e) {
+      console.error("GigaChat: Error reading .env.example fallback", e);
+    }
+  }
+
+  // Remove any quotes that might have been added
   return key.replace(/['"]/g, '');
 };
 
@@ -32,12 +51,15 @@ const getAiService = () => {
 };
 
 // Debug API Key on startup (will show in Netlify logs)
-console.log("GigaChat API Key Status:", getGigaChatApiKey() ? "Present" : "Missing");
-if (getGigaChatApiKey()) {
-  console.log("GigaChat API Key Length:", getGigaChatApiKey().length);
+const startupKey = getGigaChatApiKey();
+console.log("GigaChat API Key Status:", startupKey ? "Present" : "Missing");
+if (startupKey) {
+  console.log("GigaChat API Key Length:", startupKey.length);
+  console.log("GigaChat API Key starts with:", startupKey.substring(0, 5) + "...");
 }
 const scope = process.env.GIGACHAT_SCOPE || 'GIGACHAT_API_PERS';
 console.log("GigaChat Scope:", scope);
+console.log("GigaChat Environment Variables found:", Object.keys(process.env).filter(k => k.startsWith('GIGACHAT')));
 
 // Logging middleware
 app.use((req, res, next) => {
@@ -151,8 +173,18 @@ app.post("/api/attendance/submit", (req, res) => {
 // AI Health Check
 app.get("/api/health/ai", async (req, res) => {
   const currentApiKey = getGigaChatApiKey();
+  const envVars = Object.keys(process.env).filter(k => k.startsWith('GIGACHAT'));
+  
   if (!currentApiKey) {
-    res.status(500).json({ status: "error", message: "API Key missing or invalid configuration. Please set GIGACHAT_API_KEY in your environment variables." });
+    res.status(500).json({ 
+      status: "error", 
+      message: "API Key missing. Please set GIGACHAT_API_KEY in Netlify UI (Site configuration > Environment variables).",
+      debug: {
+        envKeysFound: envVars,
+        cwd: process.cwd(),
+        nodeEnv: process.env.NODE_ENV
+      }
+    });
     return;
   }
   try {
