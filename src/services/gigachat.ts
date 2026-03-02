@@ -88,6 +88,7 @@ export class GigaChatService {
     }
     
     console.log(`[GigaChat] Requesting access token. RqUID: ${rquid}, Scope: ${scope}`);
+    console.log(`[GigaChat] Auth Header starts with: Basic ${cleanKey.substring(0, 10)}...`);
     
     try {
       const response = await gigaClient.post('https://ngw.devices.sberbank.ru:9443/api/v2/oauth', 

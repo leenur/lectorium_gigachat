@@ -18,19 +18,26 @@ let currentAttendanceSessionId: number | null = null;
 // Middleware for JSON
 app.use(express.json({ limit: '50mb' }));
 
-// Debug API Key
-let apiKey = process.env.GIGACHAT_API_KEY ? process.env.GIGACHAT_API_KEY.trim() : "";
-console.log("API Key Status:", apiKey ? "Present" : "Missing");
-if (apiKey) {
-  console.log("API Key Length:", apiKey.length);
-  console.log("API Key First 4:", apiKey.substring(0, 4));
-}
+// Helper to get GigaChat API Key dynamically
+const getGigaChatApiKey = () => {
+  const key = process.env.GIGACHAT_API_KEY ? process.env.GIGACHAT_API_KEY.trim() : "";
+  // Remove any quotes that might have been added in Netlify UI
+  return key.replace(/['"]/g, '');
+};
 
+// Initialize GigaChat Service with a getter to ensure it always uses the latest key
+const getAiService = () => {
+  const key = getGigaChatApiKey();
+  return new GigaChatService(key);
+};
+
+// Debug API Key on startup (will show in Netlify logs)
+console.log("GigaChat API Key Status:", getGigaChatApiKey() ? "Present" : "Missing");
+if (getGigaChatApiKey()) {
+  console.log("GigaChat API Key Length:", getGigaChatApiKey().length);
+}
 const scope = process.env.GIGACHAT_SCOPE || 'GIGACHAT_API_PERS';
 console.log("GigaChat Scope:", scope);
-
-// Initialize GigaChat Service
-const aiService = new GigaChatService(apiKey);
 
 // Logging middleware
 app.use((req, res, next) => {
@@ -143,11 +150,13 @@ app.post("/api/attendance/submit", (req, res) => {
 
 // AI Health Check
 app.get("/api/health/ai", async (req, res) => {
-  if (!apiKey) {
-    res.status(500).json({ status: "error", message: "API Key missing or invalid configuration" });
+  const currentApiKey = getGigaChatApiKey();
+  if (!currentApiKey) {
+    res.status(500).json({ status: "error", message: "API Key missing or invalid configuration. Please set GIGACHAT_API_KEY in your environment variables." });
     return;
   }
   try {
+    const aiService = getAiService();
     const response = await aiService.chat([{ role: 'user', content: 'Test connection' }]);
     res.json({ status: "ok", message: "GigaChat API is working", response: response.choices[0].message.content });
   } catch (error: any) {
@@ -210,12 +219,14 @@ app.get("/api/notes", (req, res) => {
 // Import PDF using AI
 app.post("/api/notes/import-pdf", async (req, res) => {
   const { pdfBase64 } = req.body;
-  if (!apiKey) {
-     res.status(500).json({ error: "GigaChat API Key not configured" });
+  const currentApiKey = getGigaChatApiKey();
+  if (!currentApiKey) {
+     res.status(500).json({ error: "GigaChat API Key not configured. Please set GIGACHAT_API_KEY in your environment variables." });
      return;
   }
   
   try {
+    const aiService = getAiService();
     // Save PDF to DB
     const stmt = db.prepare('INSERT INTO pdfs (data) VALUES (?)');
     stmt.run(pdfBase64);
@@ -267,12 +278,14 @@ app.post("/api/quiz/generate", async (req, res) => {
     return;
   }
 
-  if (!apiKey) {
-     res.status(500).json({ error: "GigaChat API Key not configured" });
+  const currentApiKey = getGigaChatApiKey();
+  if (!currentApiKey) {
+     res.status(500).json({ error: "GigaChat API Key not configured. Please set GIGACHAT_API_KEY in your environment variables." });
      return;
   }
 
   try {
+    const aiService = getAiService();
     const prompt = `Create a short quiz (3 questions) based on the content of the attached PDF, specifically focusing on pages ${startPage} to ${endPage}.
     Return ONLY a JSON array of objects with this structure:
     [
@@ -346,12 +359,14 @@ app.get("/api/quiz/results/:quizId", (req, res) => {
 // AI Features
 app.post("/api/ai/summarize", async (req, res) => {
   const { content } = req.body;
-  if (!apiKey) {
-     res.status(500).json({ error: "GigaChat API Key not configured" });
+  const currentApiKey = getGigaChatApiKey();
+  if (!currentApiKey) {
+     res.status(500).json({ error: "GigaChat API Key not configured. Please set GIGACHAT_API_KEY in your environment variables." });
      return;
   }
   
   try {
+    const aiService = getAiService();
     const response = await aiService.chat([
       { role: 'system', content: 'You are a helpful assistant.' },
       { role: 'user', content: `Summarize the following lecture notes in Russian. Keep it concise and structured:\n\n${content}` }
@@ -365,12 +380,14 @@ app.post("/api/ai/summarize", async (req, res) => {
 
 app.post("/api/ai/quiz", async (req, res) => {
   const { content } = req.body;
-  if (!apiKey) {
-     res.status(500).json({ error: "GigaChat API Key not configured" });
+  const currentApiKey = getGigaChatApiKey();
+  if (!currentApiKey) {
+     res.status(500).json({ error: "GigaChat API Key not configured. Please set GIGACHAT_API_KEY in your environment variables." });
      return;
   }
 
   try {
+    const aiService = getAiService();
     const prompt = `Create a short quiz (3 questions) based on these lecture notes in Russian. 
     Return ONLY a JSON array of objects with this structure:
     [
@@ -423,8 +440,9 @@ app.get("/api/questions", (req, res) => {
 app.post("/api/ai/summarize-pdf", async (req, res) => {
   const { pdfBase64, prompt } = req.body;
   
-  if (!apiKey) {
-     res.status(500).json({ error: "GigaChat API Key not configured" });
+  const currentApiKey = getGigaChatApiKey();
+  if (!currentApiKey) {
+     res.status(500).json({ error: "GigaChat API Key not configured. Please set GIGACHAT_API_KEY in your environment variables." });
      return;
   }
 
@@ -434,6 +452,7 @@ app.post("/api/ai/summarize-pdf", async (req, res) => {
   }
   
   try {
+    const aiService = getAiService();
     const response = await aiService.analyzePdf(pdfBase64, prompt || "Summarize this document");
     res.json({ summary: response.choices[0].message.content });
   } catch (error: any) {
@@ -446,8 +465,9 @@ app.post("/api/ai/summarize-pdf", async (req, res) => {
 app.post("/api/ai/analyze-pdf", async (req, res) => {
   const { pdfBase64 } = req.body;
   
-  if (!apiKey) {
-     res.status(500).json({ error: "GigaChat API Key not configured" });
+  const currentApiKey = getGigaChatApiKey();
+  if (!currentApiKey) {
+     res.status(500).json({ error: "GigaChat API Key not configured. Please set GIGACHAT_API_KEY in your environment variables." });
      return;
   }
 
@@ -457,11 +477,12 @@ app.post("/api/ai/analyze-pdf", async (req, res) => {
   }
   
   try {
+    const aiService = getAiService();
     const prompt = `
     Analyze the attached PDF document content.
     1. Provide a comprehensive summary of the document in Russian.
     2. Create a quiz with 5 multiple-choice questions based on the document's content. The questions and options must be in Russian.
-
+ 
     Return the response in JSON format with the following structure:
     {
       "summary": "The summary text in Russian",
