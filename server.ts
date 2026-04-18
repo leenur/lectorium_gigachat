@@ -1,16 +1,10 @@
 import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
-// import { createServer as createViteServer } from "vite";
 import db from "./db";
 import { GigaChatService } from "./src/services/gigachat";
 import fs from "fs";
-import os from "os";
 import path from "path";
-import { fileURLToPath } from "url";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const app = express();
 const httpServer = createServer(app);

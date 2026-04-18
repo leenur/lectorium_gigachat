@@ -1,6 +1,3 @@
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
-
 // Use in-memory database for Netlify/Serverless compatibility
 // Note: Data will be lost on server restart or function cold start.
 // For production, use an external database like Supabase, Turso, or Neon.
@@ -9,6 +6,7 @@ let db: any;
 try {
   // Try to load better-sqlite3 dynamically
   // This prevents the app from crashing at startup if the binary is missing or incompatible (common in Vercel)
+  // Instead of createRequire, simply try to require directly if available, or ignore
   const Database = require('better-sqlite3');
   db = new Database(':memory:');
   console.log("[DB] Initialized in-memory SQLite database.");

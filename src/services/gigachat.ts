@@ -232,9 +232,8 @@ export class GigaChatService {
       console.error("[GigaChat] Native file analysis failed or not supported, falling back to text extraction...", error.message);
       
       try {
-        const { createRequire } = await import('module');
-        const require = createRequire(import.meta.url);
-        const pdfParse = require('pdf-parse');
+        const pdfParseModule = await import('pdf-parse');
+        const pdfParse = pdfParseModule.default || pdfParseModule;
         const dataBuffer = await fs.promises.readFile(tempFilePath);
         const data = await pdfParse(dataBuffer);
         const text = data.text;
