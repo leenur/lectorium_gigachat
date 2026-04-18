@@ -4,13 +4,24 @@
  */
 
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Login from './pages/Login';
 import StudentView from './pages/StudentView';
 import LecturerView from './pages/LecturerView';
 
 export default function App() {
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<any>(() => {
+    const saved = localStorage.getItem('lectorium_user');
+    return saved ? JSON.parse(saved) : null;
+  });
+
+  useEffect(() => {
+    if (user) {
+      localStorage.setItem('lectorium_user', JSON.stringify(user));
+    } else {
+      localStorage.removeItem('lectorium_user');
+    }
+  }, [user]);
 
   return (
     <BrowserRouter>

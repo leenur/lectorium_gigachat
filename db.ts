@@ -48,13 +48,22 @@ try {
             } else if (tableName === 'attendance_sessions') {
                 // no args
             } else if (tableName === 'attendance_records') {
-                row.session_id = args[0]; row.student_name = args[1];
+                row.session_id = args[0]; 
+                row.student_id = args[1];
+                row.student_name = args[2];
+                row.group_id = args[3];
             } else if (tableName === 'pdfs') {
                 row.name = args[0]; row.data = args[1];
             } else if (tableName === 'active_quizzes') {
                 row.data = args[0];
             } else if (tableName === 'quiz_responses') {
-                row.quiz_id = args[0]; row.student_name = args[1]; row.answers = args[2]; row.score = args[3];
+                // stmt.run(quizId, userId, userName, score, total, JSON.stringify(answers));
+                row.quiz_id = args[0]; 
+                row.user_id = args[1]; 
+                row.user_name = args[2]; 
+                row.score = args[3];
+                row.total = args[4];
+                row.answers = args[5];
             }
             
             store[tableName].push(row);
@@ -81,7 +90,15 @@ try {
           const tableNameMatch = sql.match(/FROM (\w+)/i);
           if (tableNameMatch && store[tableNameMatch[1]]) {
             const tableName = tableNameMatch[1];
-            return [...store[tableName]].reverse();
+            let results = [...store[tableName]];
+            
+            if (sql.includes('WHERE quiz_id = ?')) {
+                results = results.filter((r: any) => r.quiz_id == args[0]);
+            } else if (sql.includes('WHERE session_id = ?')) {
+                results = results.filter((r: any) => r.session_id == args[0]);
+            }
+            
+            return results.reverse();
           }
           return [];
         }

@@ -14,6 +14,15 @@ export default function Login({ onLogin }: LoginProps) {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
+  React.useEffect(() => {
+    const saved = localStorage.getItem('lectorium_user');
+    if (saved) {
+        const user = JSON.parse(saved);
+        onLogin(user);
+        navigate(user.role === 'lecturer' ? '/lecturer' : '/student');
+    }
+  }, [navigate, onLogin]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
