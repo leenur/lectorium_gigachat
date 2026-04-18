@@ -30,7 +30,8 @@ export default function Login({ onLogin }: LoginProps) {
         onLogin(user);
         navigate(role === 'lecturer' ? '/lecturer' : '/student');
       } else {
-        alert('Ошибка входа. Проверьте данные.');
+        const errorData = await res.json().catch(() => ({}));
+        alert(errorData.error || 'Ошибка входа. Проверьте данные.');
       }
     } catch (err) {
       console.error(err);

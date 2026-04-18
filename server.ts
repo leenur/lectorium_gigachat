@@ -7,6 +7,10 @@ import { GigaChatService } from "./src/services/gigachat";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const httpServer = createServer(app);
@@ -53,13 +57,9 @@ const getAiService = () => {
 // Debug API Key on startup (will show in Netlify logs)
 const startupKey = getGigaChatApiKey();
 console.log("GigaChat API Key Status:", startupKey ? "Present" : "Missing");
-if (startupKey) {
-  console.log("GigaChat API Key Length:", startupKey.length);
-  console.log("GigaChat API Key starts with:", startupKey.substring(0, 5) + "...");
-}
+
 const scope = process.env.GIGACHAT_SCOPE || 'GIGACHAT_API_PERS';
 console.log("GigaChat Scope:", scope);
-console.log("GigaChat Environment Variables found:", Object.keys(process.env).filter(k => k.startsWith('GIGACHAT')));
 
 // Logging middleware
 app.use((req, res, next) => {
@@ -170,32 +170,56 @@ app.post("/api/attendance/submit", (req, res) => {
     }
 });
 
+// Helper to validate and fix generated quiz data
+function formatQuiz(quizData: any): any[] {
+  if (!Array.isArray(quizData)) {
+    console.error("AI returned non-array quiz data:", quizData);
+    return [];
+  }
+  return quizData.map((q: any) => {
+    let options = Array.isArray(q.options) && q.options.length > 0 ? q.options : ['Да', 'Нет'];
+    let correctIndex = Number(q.correctIndex);
+    if (isNaN(correctIndex) || correctIndex < 0 || correctIndex >= options.length) {
+      correctIndex = 0;
+    }
+    return {
+      question: q.question || 'Вопрос без текста',
+      options: options,
+      correctIndex: correctIndex
+    };
+  });
+}
+
 // AI Health Check
 app.get("/api/health/ai", async (req, res) => {
   const currentApiKey = getGigaChatApiKey();
-  const envVars = Object.keys(process.env).filter(k => k.startsWith('GIGACHAT'));
   
   if (!currentApiKey) {
     res.status(500).json({ 
       status: "error", 
-      message: "API Key missing. Please set GIGACHAT_API_KEY in Netlify UI (Site configuration > Environment variables).",
-      debug: {
-        envKeysFound: envVars,
-        cwd: process.cwd(),
-        nodeEnv: process.env.NODE_ENV
-      }
+      message: "API Key is missing or not configured.",
+      provider: "None",
+      model: "Offline"
     });
     return;
   }
   try {
     const aiService = getAiService();
     const response = await aiService.chat([{ role: 'user', content: 'Test connection' }]);
-    res.json({ status: "ok", message: "GigaChat API is working", response: response.choices[0].message.content });
+    res.json({ 
+      status: "ok", 
+      message: "GigaChat API is working", 
+      provider: "GigaChat API",
+      model: process.env.GIGACHAT_MODEL || 'GigaChat Pro/Lite',
+      response: response.choices[0].message.content 
+    });
   } catch (error: any) {
     console.error("AI Health Check Error:", error);
     res.status(500).json({ 
       status: "error", 
       message: error.message || "Unknown error",
+      provider: 'GigaChat API',
+      model: process.env.GIGACHAT_MODEL || 'GigaChat Pro/Lite (Error)',
       details: error 
     });
   }
@@ -203,26 +227,34 @@ app.get("/api/health/ai", async (req, res) => {
 
 // Login / Register
 app.post("/api/login", (req, res) => {
-  const { name, group_id, role, password } = req.body;
-  
-  if (role === 'lecturer') {
-    // Simple hardcoded check for demo purposes, or just allow it
-    if (password !== 'admin') {
-       res.status(401).json({ error: "Invalid password" });
-       return;
+  try {
+    console.log("Login request received:", req.body);
+    const { name, group_id, role, password } = req.body;
+    
+    if (role === 'lecturer') {
+      // Simple hardcoded check for demo purposes, or just allow it
+      if (password !== 'admin') {
+         res.status(401).json({ error: "Invalid password" });
+         return;
+      }
     }
-  }
 
-  // Check if user exists or create
-  let user = db.prepare('SELECT * FROM users WHERE name = ? AND role = ?').get(name, role) as any;
-  
-  if (!user) {
-    const stmt = db.prepare('INSERT INTO users (name, group_id, role) VALUES (?, ?, ?)');
-    const info = stmt.run(name, group_id || '', role);
-    user = { id: info.lastInsertRowid, name, group_id, role };
-  }
+    // Check if user exists or create
+    let user = db.prepare('SELECT * FROM users WHERE name = ? AND role = ?').get(name, role) as any;
+    
+    if (!user) {
+      console.log("Creating new user:", name, role);
+      const stmt = db.prepare('INSERT INTO users (name, group_id, role) VALUES (?, ?, ?)');
+      const info = stmt.run(name, group_id || '', role);
+      user = { id: info.lastInsertRowid, name, group_id, role };
+    }
 
-  res.json(user);
+    console.log("User logged in:", user);
+    res.json(user);
+  } catch (error: any) {
+    console.error("Login error:", error);
+    res.status(500).json({ error: "Login failed: " + error.message });
+  }
 });
 
 // Notes
@@ -334,14 +366,15 @@ app.post("/api/quiz/generate", async (req, res) => {
     const content = response.choices[0].message.content;
     // Extract JSON from response (GigaChat might return markdown code block)
     const jsonMatch = content.match(/\[.*\]/s);
-    const quizData = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(content);
+    const quizDataRaw = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(content);
+    const validQuizData = formatQuiz(quizDataRaw);
     
     // Save active quiz
     const stmt = db.prepare('INSERT INTO active_quizzes (data) VALUES (?)');
-    const info = stmt.run(JSON.stringify(quizData));
+    const info = stmt.run(JSON.stringify(validQuizData));
     const quizId = info.lastInsertRowid;
     
-    res.json({ id: quizId, quiz: quizData });
+    res.json({ id: quizId, quiz: validQuizData });
   } catch (error) {
     console.error("AI Quiz Error:", error);
     res.status(500).json({ error: "Failed to generate quiz" });
@@ -438,9 +471,10 @@ app.post("/api/ai/quiz", async (req, res) => {
     
     const responseContent = response.choices[0].message.content;
     const jsonMatch = responseContent.match(/\[.*\]/s);
-    const quizData = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(responseContent);
+    const quizDataRaw = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(responseContent);
+    const validQuizData = formatQuiz(quizDataRaw);
     
-    res.json({ quiz: quizData });
+    res.json({ quiz: validQuizData });
   } catch (error) {
     console.error("AI Error:", error);
     res.status(500).json({ error: "Failed to generate quiz" });
@@ -534,7 +568,11 @@ app.post("/api/ai/analyze-pdf", async (req, res) => {
     let result;
     try {
       const jsonMatch = content.match(/\{.*\}/s);
-      result = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(content);
+      let parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(content);
+      result = {
+        summary: parsed.summary || content,
+        quiz: formatQuiz(parsed.quiz || [])
+      };
     } catch (e) {
       console.error("Failed to parse AI response as JSON:", content);
       result = {
@@ -550,6 +588,19 @@ app.post("/api/ai/analyze-pdf", async (req, res) => {
   }
 });
 
+// Production Static Serving (Synchronous for Serverless)
+if (process.env.NODE_ENV === "production") {
+  const distPath = path.join(process.cwd(), 'dist');
+  app.use(express.static(distPath));
+  app.get('*', (req, res) => {
+    const indexPath = path.join(distPath, 'index.html');
+    if (fs.existsSync(indexPath)) {
+      res.sendFile(indexPath);
+    } else {
+      res.status(404).send("Frontend not built. Please run 'npm run build' first.");
+    }
+  });
+}
 
 async function startServer() {
   // Vite middleware for development
@@ -562,14 +613,18 @@ async function startServer() {
     app.use(vite.middlewares);
   }
 
-  httpServer.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
+  // Only listen if not in a serverless environment
+  if (!process.env.VERCEL && !process.env.NETLIFY) {
+    httpServer.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
+  }
 }
 
 // Export for Netlify Functions (serverless-http)
 export { app };
 
-if (process.env.NODE_ENV !== 'production') {
-    startServer();
-}
+startServer().catch((err) => {
+  console.error("CRITICAL: Failed to start server:", err);
+  process.exit(1);
+});

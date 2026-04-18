@@ -1,4 +1,5 @@
-import Database from 'better-sqlite3';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
 
 // Use in-memory database for Netlify/Serverless compatibility
 // Note: Data will be lost on server restart or function cold start.
@@ -6,13 +7,16 @@ import Database from 'better-sqlite3';
 let db: any;
 
 try {
+  // Try to load better-sqlite3 dynamically
+  // This prevents the app from crashing at startup if the binary is missing or incompatible (common in Vercel)
+  const Database = require('better-sqlite3');
   db = new Database(':memory:');
   console.log("[DB] Initialized in-memory SQLite database.");
 } catch (error) {
   console.error("[DB] Failed to initialize better-sqlite3, falling back to JS in-memory mock.", error);
   
   // Simple in-memory mock for better-sqlite3 API
-  const store: any = {
+  const store: Record<string, any[]> = {
     users: [],
     notes: [],
     questions: [],
@@ -26,48 +30,45 @@ try {
   db = {
     exec: (sql: string) => {
       console.log("[DB Mock] Executing SQL:", sql.substring(0, 50) + "...");
-      // Basic table creation is ignored as we use JS objects
     },
     prepare: (sql: string) => {
-      const statement = {
+      return {
         run: (...args: any[]) => {
           console.log("[DB Mock] Run:", sql, args);
-          if (sql.includes('INSERT INTO users')) {
-            const id = store.users.length + 1;
-            store.users.push({ id, name: args[0], group_id: args[1], role: args[2], created_at: new Date().toISOString() });
+          const tableNameMatch = sql.match(/INSERT INTO (\w+)/i);
+          if (tableNameMatch && store[tableNameMatch[1]]) {
+            const tableName = tableNameMatch[1];
+            const id = store[tableName].length + 1;
+            // This is a very crude mock, but it helps prevent crashes
+            store[tableName].push({ id, ...args, created_at: new Date().toISOString() });
             return { lastInsertRowid: id };
           }
-          if (sql.includes('INSERT INTO notes')) {
-            const id = store.notes.length + 1;
-            store.notes.push({ id, content: args[0], created_at: new Date().toISOString() });
-            return { lastInsertRowid: id };
-          }
-          if (sql.includes('INSERT INTO pdfs')) {
-            const id = store.pdfs.length + 1;
-            store.pdfs.push({ id, data: args[0], created_at: new Date().toISOString() });
-            return { lastInsertRowid: id };
-          }
-          return { lastInsertRowid: 0 };
+          return { lastInsertRowid: 1 };
         },
         get: (...args: any[]) => {
           console.log("[DB Mock] Get:", sql, args);
-          if (sql.includes('SELECT * FROM users WHERE name = ? AND role = ?')) {
-            return store.users.find((u: any) => u.name === args[0] && u.role === args[1]);
-          }
-          if (sql.includes('SELECT content FROM notes ORDER BY id DESC LIMIT 1')) {
-            return store.notes[store.notes.length - 1];
-          }
-          if (sql.includes('SELECT data FROM pdfs ORDER BY id DESC LIMIT 1')) {
-            return store.pdfs[store.pdfs.length - 1];
+          const tableNameMatch = sql.match(/FROM (\w+)/i);
+          if (tableNameMatch && store[tableNameMatch[1]]) {
+            const tableName = tableNameMatch[1];
+            if (sql.includes('ORDER BY id DESC LIMIT 1')) {
+              return store[tableName][store[tableName].length - 1];
+            }
+            if (sql.includes('WHERE name = ? AND role = ?')) {
+              return store[tableName].find((u: any) => u.name === args[0] && u.role === args[1]);
+            }
           }
           return undefined;
         },
         all: (...args: any[]) => {
           console.log("[DB Mock] All:", sql, args);
+          const tableNameMatch = sql.match(/FROM (\w+)/i);
+          if (tableNameMatch && store[tableNameMatch[1]]) {
+            const tableName = tableNameMatch[1];
+            return [...store[tableName]].reverse();
+          }
           return [];
         }
       };
-      return statement;
     }
   };
 }

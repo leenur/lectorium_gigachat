@@ -4,11 +4,11 @@
 
 [functions]
   node_bundler = "esbuild"
-  external_node_modules = ["vite", "@tailwindcss/vite", "@vitejs/plugin-react", "lightningcss"]
+  external_node_modules = ["vite", "@tailwindcss/vite", "@vitejs/plugin-react", "lightningcss", "better-sqlite3"]
 
 [[redirects]]
   from = "/api/*"
-  to = "/.netlify/functions/api"
+  to = "/.netlify/functions/api/:splat"
   status = 200
 
 [[redirects]]

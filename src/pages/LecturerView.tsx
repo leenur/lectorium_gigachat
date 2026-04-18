@@ -15,7 +15,7 @@ export default function LecturerView({ onLogout }: LecturerViewProps) {
   const [attendanceCount, setAttendanceCount] = useState<number | null>(null);
   const [attendanceActive, setAttendanceActive] = useState(false);
   const [timeSeriesData, setTimeSeriesData] = useState<{ time: string, average: number }[]>([]);
-  const [aiStatus, setAiStatus] = useState<{ status: string, message: string } | null>(null);
+  const [aiStatus, setAiStatus] = useState<{ status: string, message: string, provider?: string, model?: string } | null>(null);
 
   useEffect(() => {
     const checkAi = async () => {
@@ -36,7 +36,9 @@ export default function LecturerView({ onLogout }: LecturerViewProps) {
   const [summary, setSummary] = useState('');
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [activeQuizId, setActiveQuizId] = useState<number | null>(null);
+  const [activeQuizQuestions, setActiveQuizQuestions] = useState<any[]>([]);
   const [quizResults, setQuizResults] = useState<any[]>([]);
+  const [expandedResultId, setExpandedResultId] = useState<number | null>(null);
 
   useEffect(() => {
     // Initial fetch
@@ -46,6 +48,7 @@ export default function LecturerView({ onLogout }: LecturerViewProps) {
     fetch('/api/quiz/active').then(res => res.json()).then(data => {
         if (data) {
             setActiveQuizId(data.id);
+            setActiveQuizQuestions(data.questions || []);
         }
     });
 
@@ -152,6 +155,7 @@ export default function LecturerView({ onLogout }: LecturerViewProps) {
         const data = await res.json();
         if (res.ok) {
             setActiveQuizId(data.id);
+            setActiveQuizQuestions(analysisResult.quiz);
             setQuizResults([]);
             alert('Квиз опубликован и отправлен студентам!');
         } else {
@@ -189,16 +193,25 @@ export default function LecturerView({ onLogout }: LecturerViewProps) {
         <div className="flex gap-4">
            {/* AI Status Indicator */}
            <div 
-             className="flex items-center gap-2 px-3 py-1 rounded-xl bg-white shadow-sm border border-stone-200 cursor-help" 
+             className="flex flex-col items-start justify-center px-3 py-1.5 rounded-xl bg-white shadow-sm border border-stone-200 cursor-help" 
              onClick={() => {
                if (aiStatus?.status !== 'ok') {
-                 alert(`AI Debug Info:\nStatus: ${aiStatus?.status}\nMessage: ${aiStatus?.message}\n\nПожалуйста, убедитесь, что GIGACHAT_API_KEY установлен в настройках Netlify.`);
+                 alert(`Статус AI: Отключен\n${aiStatus?.message || 'Пожалуйста, настройте ключи API.'}`);
+               } else {
+                 alert(`Текущий AI:\nПровайдер: ${aiStatus?.provider}\nМодель: ${aiStatus?.model}`);
                }
              }}
              title={aiStatus?.message || 'Проверка статуса AI...'}
            >
-             <div className={cn("w-2 h-2 rounded-full", aiStatus?.status === 'ok' ? "bg-emerald-500" : "bg-red-500 animate-pulse")} />
-             <span className="text-stone-600 text-xs font-medium font-mono uppercase tracking-tight">AI: {aiStatus?.status === 'ok' ? 'Online' : 'Offline'}</span>
+             <div className="flex items-center gap-2">
+               <div className={cn("w-2 h-2 rounded-full", aiStatus?.status === 'ok' ? "bg-emerald-500" : "bg-red-500 animate-pulse")} />
+               <span className="text-stone-600 text-xs font-medium font-mono uppercase tracking-tight">
+                 {aiStatus?.provider || 'AI'}: {aiStatus?.status === 'ok' ? 'Online' : 'Offline'}
+               </span>
+             </div>
+             {aiStatus?.model && (
+               <span className="text-[9px] text-stone-400 pl-4 uppercase tracking-wider">{aiStatus.model}</span>
+             )}
            </div>
 
            {/* Attendance Button */}
@@ -451,7 +464,7 @@ export default function LecturerView({ onLogout }: LecturerViewProps) {
 
             {/* Quiz Results Feed */}
             {activeQuizId && (
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-stone-200 h-[400px] flex flex-col">
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-stone-200 flex flex-col" style={{ minHeight: '400px' }}>
                     <h3 className="text-lg font-medium text-stone-800 mb-4 flex items-center gap-2">
                         <CheckCircle size={20} className="text-emerald-500" />
                         Результаты квиза ({quizResults.length})
@@ -460,22 +473,77 @@ export default function LecturerView({ onLogout }: LecturerViewProps) {
                         {quizResults.length === 0 ? (
                             <p className="text-stone-400 text-center mt-10">Ответов пока нет</p>
                         ) : (
-                            quizResults.map((r, idx) => (
-                                <div key={idx} className="bg-stone-50 p-3 rounded-lg border border-stone-100 flex justify-between items-center">
-                                    <div>
-                                        <span className="font-bold text-sm text-stone-700">{r.user_name}</span>
-                                        <p className="text-[10px] text-stone-400">
-                                            {r.created_at ? new Date(r.created_at).toLocaleTimeString() : 'Только что'}
-                                        </p>
+                            quizResults.map((r, idx) => {
+                                const parsedAnswers = typeof r.answers === 'string' ? JSON.parse(r.answers) : (r.answers || []);
+                                const isExpanded = expandedResultId === r.id;
+
+                                return (
+                                <div key={idx} className="bg-stone-50 rounded-lg border border-stone-100 overflow-hidden">
+                                    <div 
+                                        className="p-3 flex justify-between items-center cursor-pointer hover:bg-stone-100 transition-colors"
+                                        onClick={() => setExpandedResultId(isExpanded ? null : r.id)}
+                                    >
+                                        <div>
+                                            <span className="font-bold text-sm text-stone-700">{r.user_name}</span>
+                                            <p className="text-[10px] text-stone-400">
+                                                {r.created_at ? new Date(r.created_at).toLocaleTimeString() : 'Только что'}
+                                            </p>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                            <div className={cn(
+                                                "px-3 py-1 rounded-full text-xs font-bold w-16 text-center",
+                                                (r.score / r.total) >= 0.7 ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+                                            )}>
+                                                {r.score} / {r.total}
+                                            </div>
+                                            <div className="text-stone-400">
+                                                <svg 
+                                                    className={cn("w-4 h-4 transition-transform", isExpanded && "rotate-180")} 
+                                                    fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                                                >
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                                </svg>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div className={cn(
-                                        "px-3 py-1 rounded-full text-xs font-bold",
-                                        (r.score / r.total) >= 0.7 ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
-                                    )}>
-                                        {r.score} / {r.total}
-                                    </div>
+
+                                    {isExpanded && activeQuizQuestions.length > 0 && (
+                                        <div className="p-4 border-t border-stone-200 bg-white space-y-4">
+                                            <h4 className="text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-2">Ответы студента</h4>
+                                            {activeQuizQuestions.map((q, qIdx) => {
+                                                const studentAnswerIdx = parsedAnswers[qIdx];
+                                                const isCorrect = studentAnswerIdx === q.correctIndex;
+                                                
+                                                return (
+                                                    <div key={qIdx} className="text-sm">
+                                                        <p className="font-medium text-stone-800 mb-1.5 leading-snug">
+                                                            {qIdx + 1}. {q.question}
+                                                        </p>
+                                                        <div className="space-y-1.5 border-l-2 pl-3 ml-1 border-stone-200">
+                                                            <div className={cn(
+                                                                "text-xs p-1.5 rounded",
+                                                                isCorrect ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
+                                                            )}>
+                                                                <span className="font-semibold">Студент {isCorrect ? '(Верно)' : '(Ошибка)'}: </span> 
+                                                                {studentAnswerIdx !== undefined && studentAnswerIdx !== -1 && q.options[studentAnswerIdx] 
+                                                                    ? q.options[studentAnswerIdx] 
+                                                                    : 'Нет ответа'
+                                                                }
+                                                            </div>
+                                                            {!isCorrect && (
+                                                                <div className="text-xs p-1.5 rounded bg-stone-50 text-stone-600">
+                                                                    <span className="font-semibold">Правильный: </span>
+                                                                    {q.options[q.correctIndex]}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
                                 </div>
-                            ))
+                            )})
                         )}
                     </div>
                 </div>
