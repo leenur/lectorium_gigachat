@@ -39,8 +39,27 @@ try {
           if (tableNameMatch && store[tableNameMatch[1]]) {
             const tableName = tableNameMatch[1];
             const id = store[tableName].length + 1;
-            // This is a very crude mock, but it helps prevent crashes
-            store[tableName].push({ id, ...args, created_at: new Date().toISOString() });
+            
+            const row: any = { id, created_at: new Date().toISOString() };
+            if (tableName === 'users') {
+                row.name = args[0]; row.group_id = args[1]; row.role = args[2];
+            } else if (tableName === 'notes') {
+                row.content = args[0];
+            } else if (tableName === 'questions') {
+                row.text = args[0]; row.author_name = args[1];
+            } else if (tableName === 'attendance_sessions') {
+                // no args
+            } else if (tableName === 'attendance_records') {
+                row.session_id = args[0]; row.student_name = args[1];
+            } else if (tableName === 'pdfs') {
+                row.name = args[0]; row.data = args[1];
+            } else if (tableName === 'active_quizzes') {
+                row.data = args[0];
+            } else if (tableName === 'quiz_responses') {
+                row.quiz_id = args[0]; row.student_name = args[1]; row.answers = args[2]; row.score = args[3];
+            }
+            
+            store[tableName].push(row);
             return { lastInsertRowid: id };
           }
           return { lastInsertRowid: 1 };
