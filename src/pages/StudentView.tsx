@@ -22,59 +22,65 @@ export default function StudentView({ user, onLogout }: StudentViewProps) {
   const [activeTab, setActiveTab] = useState<'feedback' | 'notes'>('feedback');
   const [aiLoading, setAiLoading] = useState(false);
 
-  // Polling for state updates
+  // Real-time state updates via Firebase
   useEffect(() => {
-    const pollState = async () => {
-      try {
-        // Send heartbeat with current feedback
-        await fetch('/api/heartbeat', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                id: user.id, 
-                name: user.name, 
-                role: user.role,
-                feedback: comprehension 
-            })
-        });
-
-        // Get global state
-        const res = await fetch('/api/state');
-        const data = await res.json();
-        
-        if (data.notes && data.notes !== notes) {
-            setNotes(data.notes);
+    let unsubs: (() => void)[] = [];
+    
+    import('@/lib/db').then(({ db, collection, query, orderBy, limit, onSnapshot }) => {
+      // Notes
+      const notesQ = query(collection(db, 'notes'), orderBy('createdAt', 'desc'), limit(1));
+      unsubs.push(onSnapshot(notesQ, (snap) => {
+        if (!snap.empty) {
+            setNotes(snap.docs[0].data().content);
         }
+      }));
 
-        if (data.attendance.active && !attendanceOpen) {
-            setAttendanceOpen(true);
-            setAttendanceSubmitted(false);
-        } else if (!data.attendance.active && attendanceOpen) {
-            setAttendanceOpen(false);
+      // Active Quiz
+      const quizQ = query(collection(db, 'active_quizzes'), orderBy('createdAt', 'desc'), limit(1));
+      unsubs.push(onSnapshot(quizQ, (snap) => {
+        if (!snap.empty) {
+            const data = snap.docs[0].data();
+            const fetchedQuizId = snap.docs[0].id as any;
+            
+            setQuiz(prev => {
+                if (!prev || prev.id !== fetchedQuizId) {
+                     setQuizAnswers(new Array(JSON.parse(data.data).length).fill(-1));
+                     setQuizScore(null);
+                     setActiveTab('notes');
+                     alert('Преподаватель запустил новый квиз!');
+                     return { id: fetchedQuizId, questions: JSON.parse(data.data) };
+                }
+                return prev;
+            });
         }
+      }));
 
-        if (data.activeQuiz && (!quiz || quiz.id !== data.activeQuiz.id)) {
-            setQuiz(data.activeQuiz);
-            setQuizAnswers(new Array(data.activeQuiz.questions.length).fill(-1));
-            setQuizScore(null);
-            setActiveTab('notes');
-            alert('Преподаватель запустил новый квиз!');
+      // Attendance
+      const attQ = query(collection(db, 'attendance_sessions'), orderBy('createdAt', 'desc'), limit(1));
+      unsubs.push(onSnapshot(attQ, (snap) => {
+        if (!snap.empty) {
+            const isActive = snap.docs[0].data().isActive;
+            setAttendanceOpen(prev => {
+                if (isActive && !prev) {
+                    setAttendanceSubmitted(false);
+                    return true;
+                } else if (!isActive && prev) {
+                    return false;
+                }
+                return prev;
+            });
         }
-      } catch (e) {
-        console.error("Polling error:", e);
-      }
+      }));
+    });
+    
+    return () => {
+        unsubs.forEach(u => u());
     };
-
-    const interval = setInterval(pollState, 2000);
-    pollState(); // Initial call
-
-    return () => clearInterval(interval);
-  }, [user, comprehension, notes, attendanceOpen, quiz]);
+  }, []);
 
   const handleComprehensionChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = parseInt(e.target.value);
     setComprehension(val);
-    // Will be sent on next heartbeat
   };
 
   const sendQuestion = async (e: React.FormEvent) => {
@@ -82,10 +88,11 @@ export default function StudentView({ user, onLogout }: StudentViewProps) {
     if (!question.trim()) return;
     
     try {
-        await fetch('/api/questions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId: user.id, userName: user.name, content: question })
+        const { db, collection, addDoc } = await import('@/lib/db');
+        await addDoc(collection(db, 'questions'), {
+             text: question,
+             author_name: user.name,
+             createdAt: Date.now()
         });
         setQuestion('');
         alert('Вопрос отправлен!');
@@ -96,10 +103,13 @@ export default function StudentView({ user, onLogout }: StudentViewProps) {
 
   const markAttendance = async () => {
     try {
-        await fetch('/api/attendance/submit', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId: user.id, userName: user.name, groupId: user.group_id })
+        const { db, collection, addDoc } = await import('@/lib/db');
+        await addDoc(collection(db, 'attendance_records'), {
+             session_id: 'active', // Placeholder, properly handled in a more complex setup
+             student_id: user.id,
+             student_name: user.name,
+             group_id: user.group_id,
+             createdAt: Date.now()
         });
         setAttendanceSubmitted(true);
     } catch (e) {
@@ -137,8 +147,6 @@ export default function StudentView({ user, onLogout }: StudentViewProps) {
         body: JSON.stringify({ content: notes }),
       });
       const data = await res.json();
-      // For student-generated quiz, we don't have a server-side ID, 
-      // but we can wrap it in the same structure.
       setQuiz({ id: 0, questions: data.quiz });
       setQuizAnswers(new Array(data.quiz.length).fill(-1));
     } catch (e) {
@@ -156,20 +164,18 @@ export default function StudentView({ user, onLogout }: StudentViewProps) {
     });
     setQuizScore(score);
 
-    // Submit to server if it's a lecturer-published quiz (id > 0)
-    if (quiz.id > 0) {
+    // Submit to Firebase if it's a lecturer-published quiz
+    if (quiz.id) {
       try {
-        await fetch('/api/quiz/submit', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            quizId: quiz.id,
-            userId: user.id,
-            userName: user.name,
-            score,
-            total: quiz.questions.length,
-            answers: quizAnswers
-          }),
+        const { db, collection, addDoc } = await import('@/lib/db');
+        await addDoc(collection(db, 'quiz_responses'), {
+             quiz_id: quiz.id,
+             user_id: user.id || Date.now().toString(),
+             user_name: user.name,
+             score: score,
+             total: quiz.questions.length,
+             answers: JSON.stringify(quizAnswers),
+             createdAt: Date.now()
         });
       } catch (e) {
         console.error("Failed to submit quiz results:", e);

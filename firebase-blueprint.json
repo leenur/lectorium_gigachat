@@ -1,0 +1,115 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "group_id": { "type": "string" },
+        "role": { "type": "string", "enum": ["student", "lecturer"] },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["name", "role", "createdAt"]
+    },
+    "Note": {
+      "title": "Note",
+      "description": "Lecture notes",
+      "type": "object",
+      "properties": {
+        "content": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["content", "createdAt"]
+    },
+    "Question": {
+      "title": "Question",
+      "description": "Student question",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string" },
+        "author_name": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["text", "author_name", "createdAt"]
+    },
+    "AttendanceSession": {
+      "title": "AttendanceSession",
+      "description": "Active attendance session",
+      "type": "object",
+      "properties": {
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["isActive", "createdAt"]
+    },
+    "AttendanceRecord": {
+      "title": "AttendanceRecord",
+      "description": "Student attendance record",
+      "type": "object",
+      "properties": {
+        "session_id": { "type": "string" },
+        "student_id": { "type": "string" },
+        "student_name": { "type": "string" },
+        "group_id": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["session_id", "student_id", "student_name", "createdAt"]
+    },
+    "ActiveQuiz": {
+      "title": "ActiveQuiz",
+      "description": "Active quiz configuration",
+      "type": "object",
+      "properties": {
+        "data": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["data", "createdAt"]
+    },
+    "QuizResponse": {
+      "title": "QuizResponse",
+      "description": "Student quiz response",
+      "type": "object",
+      "properties": {
+        "quiz_id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "user_name": { "type": "string" },
+        "score": { "type": "number" },
+        "total": { "type": "number" },
+        "answers": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["quiz_id", "user_id", "user_name", "score", "total", "answers", "createdAt"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "#/entities/User",
+      "description": "User profiles"
+    },
+    "notes/{noteId}": {
+      "schema": "#/entities/Note",
+      "description": "Shared notes"
+    },
+    "questions/{questionId}": {
+      "schema": "#/entities/Question",
+      "description": "Questions asked by students"
+    },
+    "attendance_sessions/{sessionId}": {
+      "schema": "#/entities/AttendanceSession",
+      "description": "Attendance sessions started by lecturer"
+    },
+    "attendance_records/{recordId}": {
+      "schema": "#/entities/AttendanceRecord",
+      "description": "Attendance checks submitted by students"
+    },
+    "active_quizzes/{quizId}": {
+      "schema": "#/entities/ActiveQuiz",
+      "description": "Current active quiz"
+    },
+    "quiz_responses/{responseId}": {
+      "schema": "#/entities/QuizResponse",
+      "description": "Quiz submissions from students"
+    }
+  }
+}

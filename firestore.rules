@@ -1,0 +1,60 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Since this is a demo without strict auth integrated yet, we will allow basic schema-level access
+    // For production, integrate Google Auth and use request.auth != null
+    function isAdmin() { return false; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    
+    match /users/{userId} {
+      allow read: if true;
+      allow create: if incoming().keys().hasAll(['name', 'role', 'createdAt']) &&
+                       incoming().name is string && incoming().role is string;
+      allow update: if incoming().diff(existing()).affectedKeys().hasAny(['name', 'role', 'group_id']);
+    }
+
+    match /notes/{noteId} {
+      allow read: if true;
+      allow create: if incoming().keys().hasAll(['content', 'createdAt']) && incoming().content is string;
+      allow update: if incoming().diff(existing()).affectedKeys().hasOnly(['content', 'createdAt']);
+    }
+
+    match /questions/{questionId} {
+      allow read: if true;
+      allow create: if incoming().keys().hasAll(['text', 'author_name', 'createdAt']) && incoming().text is string;
+      allow update: if false;
+      allow delete: if true; // Allows lecturer to clear questions
+    }
+
+    match /attendance_sessions/{sessionId} {
+      allow read: if true;
+      allow create: if incoming().keys().hasAll(['isActive', 'createdAt']) && incoming().isActive is bool;
+      allow update: if incoming().diff(existing()).affectedKeys().hasOnly(['isActive', 'createdAt']);
+      allow delete: if true;
+    }
+
+    match /attendance_records/{recordId} {
+      allow read: if true;
+      allow create: if incoming().keys().hasAll(['session_id', 'student_id', 'student_name', 'createdAt']) && incoming().session_id is string;
+      allow delete: if true;
+    }
+
+    match /active_quizzes/{quizId} {
+      allow read: if true;
+      allow create: if incoming().keys().hasAll(['data', 'createdAt']) && incoming().data is string;
+      allow delete: if true;
+    }
+
+    match /quiz_responses/{responseId} {
+      allow read: if true;
+      allow create: if incoming().keys().hasAll(['quiz_id', 'user_id', 'user_name', 'score', 'total', 'answers', 'createdAt']) && incoming().quiz_id is string;
+      allow delete: if true;
+    }
+  }
+}

@@ -28,23 +28,44 @@ export default function Login({ onLogin }: LoginProps) {
     setLoading(true);
 
     try {
-      const res = await fetch('/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, group_id: groupId, role, password }),
-      });
-
-      if (res.ok) {
-        const user = await res.json();
-        onLogin(user);
-        navigate(role === 'lecturer' ? '/lecturer' : '/student');
-      } else {
-        const errorData = await res.json().catch(() => ({}));
-        alert(errorData.error || 'Ошибка входа. Проверьте данные.');
+      if (role === 'lecturer' && password !== 'admin') {
+         alert('Invalid password');
+         setLoading(false);
+         return;
       }
+
+      // Check Firebase
+      const { db, collection, getDocs, addDoc, query } = await import('@/lib/db');
+      const { where } = await import('firebase/firestore');
+      
+      const q = query(
+          collection(db, 'users'), 
+          where('name', '==', name), 
+          where('role', '==', role)
+      );
+      const querySnapshot = await getDocs(q);
+      
+      let user: any = null;
+      if (!querySnapshot.empty) {
+          const doc = querySnapshot.docs[0];
+          user = { id: doc.id, ...doc.data() };
+      } else {
+          // Create new
+          const newDoc = await addDoc(collection(db, 'users'), {
+              name,
+              group_id: groupId || '',
+              role,
+              createdAt: Date.now()
+          });
+          user = { id: newDoc.id, name, group_id: groupId || '', role };
+      }
+
+      onLogin(user);
+      navigate(role === 'lecturer' ? '/lecturer' : '/student');
+      
     } catch (err) {
       console.error(err);
-      alert('Ошибка сети');
+      alert('Ошибка сети или базы данных');
     } finally {
       setLoading(false);
     }
