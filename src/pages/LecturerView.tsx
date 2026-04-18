@@ -193,25 +193,20 @@ export default function LecturerView({ onLogout }: LecturerViewProps) {
         <div className="flex gap-4">
            {/* AI Status Indicator */}
            <div 
-             className="flex flex-col items-start justify-center px-3 py-1.5 rounded-xl bg-white shadow-sm border border-stone-200 cursor-help" 
+             className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white shadow-sm border border-stone-200 cursor-help" 
              onClick={() => {
                if (aiStatus?.status !== 'ok') {
-                 alert(`Статус AI: Отключен\n${aiStatus?.message || 'Пожалуйста, настройте ключи API.'}`);
+                 alert(`Статус AI: Отключен\n${aiStatus?.message || 'Пожалуйста, настройте логины API.'}`);
                } else {
-                 alert(`Текущий AI:\nПровайдер: ${aiStatus?.provider}\nМодель: ${aiStatus?.model}`);
+                 alert(`Текущий AI: ${aiStatus?.provider || 'GigaChat'}\nСтатус: Подключено`);
                }
              }}
              title={aiStatus?.message || 'Проверка статуса AI...'}
            >
-             <div className="flex items-center gap-2">
-               <div className={cn("w-2 h-2 rounded-full", aiStatus?.status === 'ok' ? "bg-emerald-500" : "bg-red-500 animate-pulse")} />
-               <span className="text-stone-600 text-xs font-medium font-mono uppercase tracking-tight">
-                 {aiStatus?.provider || 'AI'}: {aiStatus?.status === 'ok' ? 'Online' : 'Offline'}
-               </span>
-             </div>
-             {aiStatus?.model && (
-               <span className="text-[9px] text-stone-400 pl-4 uppercase tracking-wider">{aiStatus.model}</span>
-             )}
+             <div className={cn("w-2 h-2 rounded-full", aiStatus?.status === 'ok' ? "bg-emerald-500" : "bg-red-500 animate-pulse")} />
+             <span className="text-stone-600 text-xs font-medium font-mono uppercase tracking-tight">
+               {aiStatus?.provider || 'AI'}: {aiStatus?.status === 'ok' ? 'Online' : 'Offline'}
+             </span>
            </div>
 
            {/* Attendance Button */}

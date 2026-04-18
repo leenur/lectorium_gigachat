@@ -209,9 +209,7 @@ app.get("/api/health/ai", async (req, res) => {
     res.json({ 
       status: "ok", 
       message: "GigaChat API is working", 
-      provider: "GigaChat API",
-      model: process.env.GIGACHAT_MODEL || 'GigaChat Pro/Lite',
-      response: response.choices[0].message.content 
+      provider: "GigaChat API"
     });
   } catch (error: any) {
     console.error("AI Health Check Error:", error);
