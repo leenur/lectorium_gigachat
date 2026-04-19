@@ -1,4 +1,7 @@
-// Use in-memory database for Netlify/Serverless compatibility
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+// ... existing db.ts code ...
+const dbPath = process.env.NODE_ENV === 'production' ? '/data/sqlite.db' : 'sqlite.db';// Use in-memory database for Netlify/Serverless compatibility
 // Note: Data will be lost on server restart or function cold start.
 // For production, use an external database like Supabase, Turso, or Neon.
 let db: any;
