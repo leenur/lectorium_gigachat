@@ -1,0 +1,11 @@
+meta:
+  environment: nodejs
+  toolchain:
+    name: npm
+    version: 20
+build:
+  command: npm install && npm run build
+run:
+  # This assumes your start script is "dev" or "preview". 
+  # Check your package.json scripts and change "dev" if necessary.
+  command: npm run dev -- --host 0.0.0.0 --port 80
