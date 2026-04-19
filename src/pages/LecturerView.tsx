@@ -3,6 +3,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, L
 import { Users, MessageSquare, Upload, Clock, Activity, FileText, Brain, LogOut, CheckCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { analyzePdf, AnalysisResult } from '../services/ai';
+import { db, collection, query, orderBy, limit, onSnapshot, getDocs, deleteDoc, doc, where, addDoc } from '@/lib/db';
 
 interface LecturerViewProps {
   onLogout: () => void;
@@ -41,78 +42,169 @@ export default function LecturerView({ onLogout }: LecturerViewProps) {
   const [expandedResultId, setExpandedResultId] = useState<number | null>(null);
 
   useEffect(() => {
-    import('@/lib/db').then(({ db, collection, query, orderBy, limit, onSnapshot }) => {
+      let unsubs: (() => void)[] = [];
+
       // Notes
       const notesQ = query(collection(db, 'notes'), orderBy('createdAt', 'desc'), limit(1));
-      onSnapshot(notesQ, (snap) => {
+      unsubs.push(onSnapshot(notesQ, (snap) => {
         if (!snap.empty) {
             setNotesContent(snap.docs[0].data().content);
+        } else {
+            setNotesContent('');
         }
-      });
+      }));
 
       // Active Quiz
       const quizQ = query(collection(db, 'active_quizzes'), orderBy('createdAt', 'desc'), limit(1));
-      onSnapshot(quizQ, (snap) => {
+      unsubs.push(onSnapshot(quizQ, (snap) => {
         if (!snap.empty) {
             const data = snap.docs[0].data();
             setActiveQuizId(snap.docs[0].id as any);
             setActiveQuizQuestions(JSON.parse(data.data));
+        } else {
+            setActiveQuizId(null);
+            setActiveQuizQuestions([]);
         }
-      });
+      }));
 
       // Questions
       const questionsQ = query(collection(db, 'questions'), orderBy('createdAt', 'desc'), limit(50));
-      onSnapshot(questionsQ, (snap) => {
-          const qList = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-          setQuestions(qList);
-      });
+      unsubs.push(onSnapshot(questionsQ, (snap) => {
+          if (!snap.empty) {
+              const qList = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+              setQuestions(qList);
+          } else {
+              setQuestions([]);
+          }
+      }));
 
       // Attendance active
       const attQ = query(collection(db, 'attendance_sessions'), orderBy('createdAt', 'desc'), limit(1));
-      onSnapshot(attQ, (snap) => {
+      unsubs.push(onSnapshot(attQ, (snap) => {
           if (!snap.empty) {
              setAttendanceActive(snap.docs[0].data().isActive);
           }
-      });
-    });
+      }));
 
-    // Mock Time Series (to avoid too much refactoring)
+      // Active Students & Comprehension
+      const studentsQ = query(collection(db, 'active_students'));
+      unsubs.push(onSnapshot(studentsQ, (snap) => {
+          const now = Date.now();
+          const activeDocs = snap.docs.map(d => ({id: d.id, ...(d.data() as any)}));
+          // Active means heartbeat within last 20 seconds. (Increased tolerance to 20s to avoid flickering)
+          const active = activeDocs.filter(d => (now - d.lastActive) < 20000);
+          
+          const count = active.length;
+          const totalFeedback = active.reduce((acc, curr) => acc + curr.feedback, 0);
+          const avg = count > 0 ? (totalFeedback / count) : 0;
+          
+          setStats({
+              average: avg,
+              count: count,
+              values: active.map(a => a.feedback)
+          });
+      }));
+
+    // Time Series polling to update the chart based on the latest state
     const interval = setInterval(() => {
-        setTimeSeriesData(prev => {
-            const newData = [...prev, { time: new Date().toLocaleTimeString(), average: 100 }];
-            return newData.slice(-20);
+        // We use the latest stats to push to time series
+        setStats(currentStats => {
+             setTimeSeriesData(prev => {
+                 const newData = [...prev, { time: new Date().toLocaleTimeString(), average: currentStats.average }];
+                 return newData.slice(-20);
+             });
+             return currentStats;
         });
+        
+        // Also cleanup stale students periodically
+        getDocs(collection(db, 'active_students')).then(snap => {
+            const now = Date.now();
+            snap.docs.forEach(d => {
+                if ((now - d.data().lastActive) > 30000) {
+                    deleteDoc(d.ref).catch(console.error);
+                }
+            });
+        }).catch(console.error);
     }, 5000);
-    return () => clearInterval(interval);
+
+    return () => {
+        clearInterval(interval);
+        unsubs.forEach(u => u());
+    };
   }, []);
 
   useEffect(() => {
     if (!attendanceActive) return;
-    let unsub = () => {};
-    import('@/lib/db').then(({ db, collection, query, onSnapshot }) => {
-        const q = query(collection(db, 'attendance_records'));
-        unsub = onSnapshot(q, (snap) => {
-             // In real app filter by session_id, here just count overall recent
-             setAttendanceCount(snap.size); 
-        });
+    const q = query(collection(db, 'attendance_records'));
+    const unsub = onSnapshot(q, (snap) => {
+         // In real app filter by session_id, here just count overall recent
+         setAttendanceCount(snap.size); 
     });
     return () => unsub();
   }, [attendanceActive]);
 
   useEffect(() => {
     if (!activeQuizId) return;
-    let unsub = () => {};
-    import('@/lib/db').then(({ db, collection, query, where, orderBy, onSnapshot }) => {
-        const q = query(collection(db, 'quiz_responses'), where('quiz_id', '==', activeQuizId));
-        unsub = onSnapshot(q, (snap) => {
-            const results = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-            // Order manually since composite index might be missing
-            results.sort((a: any, b: any) => b.createdAt - a.createdAt);
-            setQuizResults(results);
-        });
+    const q = query(collection(db, 'quiz_responses'), where('quiz_id', '==', activeQuizId));
+    const unsub = onSnapshot(q, (snap) => {
+        const results = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        // Order manually since composite index might be missing
+        results.sort((a: any, b: any) => b.createdAt - a.createdAt);
+        setQuizResults(results);
     });
     return () => unsub();
   }, [activeQuizId]);
+
+  const [confirmEnd, setConfirmEnd] = useState(false);
+
+  const endLecture = async () => {
+    if (!confirmEnd) {
+        setConfirmEnd(true);
+        setTimeout(() => setConfirmEnd(false), 4000);
+        return;
+    }
+    setConfirmEnd(false);
+    
+    try {
+        const collectionsToClear = ['questions', 'active_quizzes', 'quiz_responses', 'notes', 'active_students', 'attendance_sessions', 'attendance_records'];
+        
+        const failedCollections = [];
+        
+        for (const col of collectionsToClear) {
+            try {
+                const snap = await getDocs(collection(db, col));
+                const deletePromises = snap.docs.map(d => {
+                    return deleteDoc(d.ref).catch(e => {
+                        console.error(`Failed to delete doc in ${col}`, e);
+                        throw e;
+                    });
+                });
+                await Promise.all(deletePromises);
+            } catch (err) {
+                console.error(`Failed to clear ${col}:`, err);
+                failedCollections.push(col);
+            }
+        }
+        
+        setNotesContent('');
+        setActiveQuizId(null);
+        setActiveQuizQuestions([]);
+        setSummary('');
+        setAnalysisResult(null);
+        setQuestions([]);
+        setQuizResults([]);
+        setAttendanceActive(false);
+        setAttendanceCount(0);
+        
+        if (failedCollections.length > 0) {
+           console.error(`Лекция завершена частично. Не удалось очистить: ${failedCollections.join(', ')}`);
+        } else {
+           console.log('Лекция успешно завершена, все данные очищены для новой сессии.');
+        }
+    } catch (e) {
+        console.error("Failed to end lecture completely", e);
+    }
+  };
 
   const uploadNotes = async () => {
     if (!notesContent.trim()) {
@@ -121,15 +213,13 @@ export default function LecturerView({ onLogout }: LecturerViewProps) {
     }
     setUploading(true);
     try {
-      const { db, collection, addDoc } = await import('@/lib/db');
       await addDoc(collection(db, 'notes'), {
           content: notesContent,
           createdAt: Date.now()
       });
-      alert('Заметки обновлены');
+      console.log('Заметки обновлены');
     } catch (error) {
       console.error("Failed to upload notes:", error);
-      alert('Ошибка при сохранении заметок');
     } finally {
       setUploading(false);
     }
@@ -139,7 +229,6 @@ export default function LecturerView({ onLogout }: LecturerViewProps) {
     if (!analysisResult?.quiz) return;
     setQuizGenerating(true);
     try {
-        const { db, collection, addDoc } = await import('@/lib/db');
         const docRef = await addDoc(collection(db, 'active_quizzes'), {
             data: JSON.stringify(analysisResult.quiz),
             createdAt: Date.now()
@@ -148,19 +237,16 @@ export default function LecturerView({ onLogout }: LecturerViewProps) {
         setActiveQuizId(docRef.id as any);
         setActiveQuizQuestions(analysisResult.quiz);
         setQuizResults([]);
-        alert('Квиз опубликован и отправлен студентам!');
+        console.log('Квиз опубликован и отправлен студентам!');
     } catch (e) {
-        console.error(e);
-        alert('Ошибка сети или БД');
+        console.error("Ошибка сети или БД", e);
     } finally {
         setQuizGenerating(false);
     }
   };
 
-
   const startAttendance = async () => {
     try {
-        const { db, collection, addDoc } = await import('@/lib/db');
         await addDoc(collection(db, 'attendance_sessions'), {
             isActive: true,
             createdAt: Date.now()
@@ -172,10 +258,10 @@ export default function LecturerView({ onLogout }: LecturerViewProps) {
                  isActive: false,
                  createdAt: Date.now()
              });
+             console.log('Посещаемость завершена');
         }, 30000);
     } catch(e) {
-        console.error(e);
-        alert('Ошибка при запуске проверки посещаемости');
+        console.error("Ошибка при запуске проверки посещаемости", e);
     }
   };
 
@@ -196,17 +282,26 @@ export default function LecturerView({ onLogout }: LecturerViewProps) {
           <p className="text-stone-500">Активных студентов: {stats.count}</p>
         </div>
         <div className="flex gap-4">
+           {/* End Session Button */}
+           <button 
+             onClick={endLecture}
+             className={cn("px-4 py-2 rounded-xl border transition-colors flex items-center gap-2 font-medium", confirmEnd ? "bg-red-600 text-white border-red-700 hover:bg-red-700" : "bg-red-50 text-red-600 border-red-200 hover:bg-red-100 hover:border-red-300")}
+           >
+             <LogOut size={18} />
+             {confirmEnd ? "Подтвердить?" : "Завершить лекцию"}
+           </button>
+
            {/* AI Status Indicator */}
            <div 
              className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white shadow-sm border border-stone-200 cursor-help" 
              onClick={() => {
                if (aiStatus?.status !== 'ok') {
-                 alert(`Статус AI: Отключен\n${aiStatus?.message || 'Пожалуйста, настройте логины API.'}`);
+                 console.log(`Статус AI: Отключен. ${aiStatus?.message || 'Пожалуйста, настройте логины API.'}`);
                } else {
-                 alert(`Текущий AI: ${aiStatus?.provider || 'GigaChat'}\nСтатус: Подключено`);
+                 console.log(`Текущий AI: ${aiStatus?.provider || 'GigaChat'}. Статус: Подключено`);
                }
              }}
-             title={aiStatus?.message || 'Проверка статуса AI...'}
+             title={aiStatus?.status === 'ok' ? `Подключено: ${aiStatus?.provider || 'GigaChat'}` : (aiStatus?.message || 'AI Отключен')}
            >
              <div className={cn("w-2 h-2 rounded-full", aiStatus?.status === 'ok' ? "bg-emerald-500" : "bg-red-500 animate-pulse")} />
              <span className="text-stone-600 text-xs font-medium font-mono uppercase tracking-tight">
@@ -327,10 +422,10 @@ export default function LecturerView({ onLogout }: LecturerViewProps) {
                         questions.map((q) => (
                             <div key={q.id} className="bg-stone-50 p-3 rounded-lg border border-stone-100">
                                 <div className="flex justify-between items-start mb-1">
-                                    <span className="font-bold text-xs text-stone-600">{q.user_name}</span>
-                                    <span className="text-[10px] text-stone-400">{new Date(q.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                                    <span className="font-bold text-xs text-stone-600">{q.author_name || q.user_name}</span>
+                                    <span className="text-[10px] text-stone-400">{q.createdAt ? new Date(q.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Только что'}</span>
                                 </div>
-                                <p className="text-sm text-stone-800">{q.content}</p>
+                                <p className="text-sm text-stone-800">{q.text || q.content}</p>
                             </div>
                         ))
                     )}
@@ -356,7 +451,7 @@ export default function LecturerView({ onLogout }: LecturerViewProps) {
                         if (!file) return;
                         
                         if (file.size > 30 * 1024 * 1024) {
-                          alert("Файл слишком большой (макс 30МБ)");
+                          console.log("Файл слишком большой (макс 30МБ)");
                           return;
                         }
 
@@ -374,19 +469,23 @@ export default function LecturerView({ onLogout }: LecturerViewProps) {
                           setAnalysisResult(result);
                           setSummary(result.summary);
                           setNotesContent(result.summary); // Pre-fill notes with summary
+                          setActiveQuizId(null);
+                          setActiveQuizQuestions([]);
 
-                          // Optionally save summary to server as notes
-                          await fetch('/api/notes', {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ content: result.summary })
-                          });
+                          try {
+                            await addDoc(collection(db, 'notes'), {
+                                content: result.summary,
+                                createdAt: Date.now()
+                            });
+                          } catch (e) {
+                              console.error('Failed to auto-save notes via Firebase', e);
+                          }
                           
-                          alert('PDF проанализирован: саммари и квиз готовы!');
+                          console.log('PDF проанализирован: саммари и квиз готовы!');
 
                         } catch (err) {
                           console.error(err);
-                          alert(err instanceof Error ? err.message : 'Ошибка при анализе PDF');
+                          console.log(err instanceof Error ? err.message : 'Ошибка при анализе PDF');
                         } finally {
                           setUploading(false);
                         }
@@ -431,8 +530,8 @@ export default function LecturerView({ onLogout }: LecturerViewProps) {
                 )}
             </div>
 
-            {/* Quiz Generator (Only if Analysis Result exists) */}
-            {analysisResult && analysisResult.quiz && (
+            {/* Quiz Generator (Only if Analysis Result exists and no active quiz, or we want to overwrite) */}
+            {analysisResult && analysisResult.quiz && !activeQuizId && (
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-stone-200">
                     <h3 className="text-lg font-medium text-stone-800 mb-4 flex items-center gap-2">
                         <Brain size={20} />
@@ -465,10 +564,21 @@ export default function LecturerView({ onLogout }: LecturerViewProps) {
             {/* Quiz Results Feed */}
             {activeQuizId && (
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-stone-200 flex flex-col" style={{ minHeight: '400px' }}>
-                    <h3 className="text-lg font-medium text-stone-800 mb-4 flex items-center gap-2">
-                        <CheckCircle size={20} className="text-emerald-500" />
-                        Результаты квиза ({quizResults.length})
-                    </h3>
+                    <div className="flex items-center justify-between gap-4 mb-4">
+                        <h3 className="text-lg font-medium text-stone-800 flex items-center gap-2">
+                            <CheckCircle size={20} className="text-emerald-500" />
+                            Результаты квиза ({quizResults.length})
+                        </h3>
+                        <button 
+                            onClick={() => {
+                                setActiveQuizId(null);
+                                setActiveQuizQuestions([]);
+                            }}
+                            className="text-xs px-3 py-1.5 rounded-full bg-stone-100 text-stone-500 hover:bg-stone-200 hover:text-stone-800 transition-colors font-medium border border-stone-200"
+                        >
+                            Завершить и скрыть
+                        </button>
+                    </div>
                     <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
                         {quizResults.length === 0 ? (
                             <p className="text-stone-400 text-center mt-10">Ответов пока нет</p>
@@ -486,7 +596,7 @@ export default function LecturerView({ onLogout }: LecturerViewProps) {
                                         <div>
                                             <span className="font-bold text-sm text-stone-700">{r.user_name}</span>
                                             <p className="text-[10px] text-stone-400">
-                                                {r.created_at ? new Date(r.created_at).toLocaleTimeString() : 'Только что'}
+                                                {r.createdAt ? new Date(r.createdAt).toLocaleTimeString() : (r.created_at ? new Date(r.created_at).toLocaleTimeString() : 'Только что')}
                                             </p>
                                         </div>
                                         <div className="flex items-center gap-3">

@@ -233,7 +233,7 @@ export class GigaChatService {
       
       try {
         const pdfParseModule = await import('pdf-parse');
-        const pdfParse = pdfParseModule.default || pdfParseModule;
+        const pdfParse = typeof pdfParseModule.default === 'function' ? pdfParseModule.default : (pdfParseModule as any);
         const dataBuffer = await fs.promises.readFile(tempFilePath);
         const data = await pdfParse(dataBuffer);
         const text = data.text;

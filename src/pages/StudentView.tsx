@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Send, BookOpen, Brain, CheckCircle, Clock, FileText, LogOut } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { cn } from '@/lib/utils';
+import { db, collection, query, orderBy, limit, onSnapshot, setDoc, doc, addDoc } from '@/lib/db';
 
 interface StudentViewProps {
   user: any;
@@ -26,12 +27,14 @@ export default function StudentView({ user, onLogout }: StudentViewProps) {
   useEffect(() => {
     let unsubs: (() => void)[] = [];
     
-    import('@/lib/db').then(({ db, collection, query, orderBy, limit, onSnapshot }) => {
       // Notes
       const notesQ = query(collection(db, 'notes'), orderBy('createdAt', 'desc'), limit(1));
       unsubs.push(onSnapshot(notesQ, (snap) => {
         if (!snap.empty) {
             setNotes(snap.docs[0].data().content);
+        } else {
+            setNotes('');
+            setSummary('');
         }
       }));
 
@@ -47,11 +50,14 @@ export default function StudentView({ user, onLogout }: StudentViewProps) {
                      setQuizAnswers(new Array(JSON.parse(data.data).length).fill(-1));
                      setQuizScore(null);
                      setActiveTab('notes');
-                     alert('Преподаватель запустил новый квиз!');
+                     console.log('Преподаватель запустил новый квиз!');
                      return { id: fetchedQuizId, questions: JSON.parse(data.data) };
                 }
                 return prev;
             });
+        } else {
+            setQuiz(null);
+            setQuizScore(null);
         }
       }));
 
@@ -71,12 +77,28 @@ export default function StudentView({ user, onLogout }: StudentViewProps) {
             });
         }
       }));
-    });
     
     return () => {
         unsubs.forEach(u => u());
     };
   }, []);
+
+  // Heartbeat for comprehension feedback
+  useEffect(() => {
+     let interval: any;
+     const heartbeat = () => {
+         if (user?.id) {
+             setDoc(doc(db, 'active_students', user.id.toString()), {
+                 name: user.name,
+                 feedback: comprehension,
+                 lastActive: Date.now()
+             }).catch(console.error);
+         }
+     };
+     heartbeat(); // Initial call
+     interval = setInterval(heartbeat, 5000); // 5 seconds
+     return () => clearInterval(interval);
+  }, [user?.id, user?.name, comprehension]);
 
   const handleComprehensionChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = parseInt(e.target.value);
@@ -88,22 +110,20 @@ export default function StudentView({ user, onLogout }: StudentViewProps) {
     if (!question.trim()) return;
     
     try {
-        const { db, collection, addDoc } = await import('@/lib/db');
         await addDoc(collection(db, 'questions'), {
              text: question,
              author_name: user.name,
              createdAt: Date.now()
         });
         setQuestion('');
-        alert('Вопрос отправлен!');
+        console.log('Вопрос отправлен!');
     } catch (e) {
-        alert('Ошибка отправки вопроса');
+        console.error('Ошибка отправки вопроса', e);
     }
   };
 
   const markAttendance = async () => {
     try {
-        const { db, collection, addDoc } = await import('@/lib/db');
         await addDoc(collection(db, 'attendance_records'), {
              session_id: 'active', // Placeholder, properly handled in a more complex setup
              student_id: user.id,
@@ -113,7 +133,7 @@ export default function StudentView({ user, onLogout }: StudentViewProps) {
         });
         setAttendanceSubmitted(true);
     } catch (e) {
-        alert('Ошибка отправки посещаемости');
+        console.error('Ошибка отправки посещаемости', e);
     }
   };
 
@@ -135,27 +155,6 @@ export default function StudentView({ user, onLogout }: StudentViewProps) {
     }
   };
 
-  const getQuiz = async () => {
-    if (!notes) return;
-    setAiLoading(true);
-    setQuiz(null);
-    setQuizScore(null);
-    try {
-      const res = await fetch('/api/ai/quiz', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: notes }),
-      });
-      const data = await res.json();
-      setQuiz({ id: 0, questions: data.quiz });
-      setQuizAnswers(new Array(data.quiz.length).fill(-1));
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setAiLoading(false);
-    }
-  };
-
   const submitQuiz = async () => {
     if (!quiz) return;
     let score = 0;
@@ -167,7 +166,6 @@ export default function StudentView({ user, onLogout }: StudentViewProps) {
     // Submit to Firebase if it's a lecturer-published quiz
     if (quiz.id) {
       try {
-        const { db, collection, addDoc } = await import('@/lib/db');
         await addDoc(collection(db, 'quiz_responses'), {
              quiz_id: quiz.id,
              user_id: user.id || Date.now().toString(),
@@ -284,14 +282,6 @@ export default function StudentView({ user, onLogout }: StudentViewProps) {
                         >
                         <BookOpen size={20} />
                         </button>
-                        <button 
-                        onClick={getQuiz}
-                        disabled={aiLoading}
-                        className="p-2 text-stone-500 hover:text-stone-900 hover:bg-stone-100 rounded-lg transition-colors"
-                        title="Квиз"
-                        >
-                        <Brain size={20} />
-                        </button>
                     </div>
                     )}
                 </div>
@@ -323,7 +313,7 @@ export default function StudentView({ user, onLogout }: StudentViewProps) {
                 )}
 
                 {/* Quiz Output */}
-                {quiz && (
+                {quiz && quiz.id && (
                 <motion.section 
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -331,7 +321,7 @@ export default function StudentView({ user, onLogout }: StudentViewProps) {
                 >
                     <h3 className="font-bold text-amber-900 mb-4 flex items-center gap-2">
                     <Brain size={16} />
-                    Проверка знаний (AI)
+                    Квиз от преподавателя
                     </h3>
                     
                     {quizScore === null ? (
@@ -374,12 +364,6 @@ export default function StudentView({ user, onLogout }: StudentViewProps) {
                         <p className="text-sm text-amber-700">
                         {quizScore === quiz.questions.length ? 'Отлично!' : 'Можно лучше.'}
                         </p>
-                        <button 
-                        onClick={() => { setQuiz(null); setQuizScore(null); }}
-                        className="mt-4 text-sm text-amber-600 underline"
-                        >
-                        Закрыть
-                        </button>
                     </div>
                     )}
                 </motion.section>

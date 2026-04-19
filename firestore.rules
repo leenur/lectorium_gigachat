@@ -23,6 +23,7 @@ service cloud.firestore {
       allow read: if true;
       allow create: if incoming().keys().hasAll(['content', 'createdAt']) && incoming().content is string;
       allow update: if incoming().diff(existing()).affectedKeys().hasOnly(['content', 'createdAt']);
+      allow delete: if true;
     }
 
     match /questions/{questionId} {
@@ -54,6 +55,13 @@ service cloud.firestore {
     match /quiz_responses/{responseId} {
       allow read: if true;
       allow create: if incoming().keys().hasAll(['quiz_id', 'user_id', 'user_name', 'score', 'total', 'answers', 'createdAt']) && incoming().quiz_id is string;
+      allow delete: if true;
+    }
+
+    match /active_students/{studentId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
       allow delete: if true;
     }
   }
