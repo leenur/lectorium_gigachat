@@ -112,30 +112,34 @@ app.post("/api/heartbeat", (req, res) => {
     res.json({ success: true });
 });
 
-// Get Global State (Polling)
-app.get("/api/state", (req, res) => {
-    const questions = db.prepare('SELECT * FROM questions ORDER BY created_at DESC LIMIT 50').all();
-    const activeQuiz = db.prepare('SELECT id, data FROM active_quizzes ORDER BY id DESC LIMIT 1').get() as { id: number, data: string } | undefined;
-    const latestNote = db.prepare('SELECT content FROM notes ORDER BY id DESC LIMIT 1').get() as { content: string } | undefined;
-    
-    let attendanceCount = 0;
-    if (attendanceActive && currentAttendanceSessionId) {
-        const countStmt = db.prepare('SELECT COUNT(*) as count FROM attendance_records WHERE session_id = ?');
-        const count = countStmt.get(currentAttendanceSessionId) as { count: number };
-        attendanceCount = count.count;
-    }
+// Define variables outside the route to persist data between requests
+let cachedState: any = null;
+let lastCacheUpdate = 0;
+const CACHE_TTL_MS = 5000; // 5 seconds
 
-    res.json({
-        feedbackStats,
-        questions,
-        activeQuiz: activeQuiz ? { id: activeQuiz.id, questions: JSON.parse(activeQuiz.data) } : null,
-        notes: latestNote ? latestNote.content : "",
-        attendance: {
-            active: attendanceActive,
-            count: attendanceCount
-        },
-        activeUsersCount: activeUsers.size
-    });
+app.get("/api/state", (req, res) => {
+  const now = Date.now();
+  
+  // Re-query SQLite only if the cache is expired or empty
+  if (!cachedState || now - lastCacheUpdate > CACHE_TTL_MS) {
+    const questions = db.prepare('SELECT * FROM questions ORDER BY created_at DESC LIMIT 50').all();
+    const activeQuiz = db.prepare('SELECT id, data FROM active_quizzes ORDER BY id DESC LIMIT 1').get();
+    const latestNote = db.prepare('SELECT content FROM notes ORDER BY id DESC LIMIT 1').get();
+    
+    cachedState = {
+      questions,
+      activeQuiz,
+      latestNote
+    };
+    lastCacheUpdate = now;
+  }
+  
+  // activeUsers and feedbackStats are already in-memory, attach them to the cached DB payload
+  res.json({
+    ...cachedState,
+    activeUsers: Array.from(activeUsers.values()),
+    feedbackStats
+  });
 });
 
 app.post("/api/questions", (req, res) => {
