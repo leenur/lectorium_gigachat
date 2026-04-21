@@ -229,7 +229,7 @@ app.post("/api/login", (req, res) => {
     
     if (role === 'lecturer') {
       // Simple hardcoded check for demo purposes, or just allow it
-      if (password !== 'admin') {
+      if (password !== process.env.ADMIN_PASSWORD) {
          res.status(401).json({ error: "Invalid password" });
          return;
       }
